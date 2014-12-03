@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 from scipy.interpolate import interp1d
 
-STARTDAY = 1        
+STARTDAY = 182        
 SECONDS_IN_DAY = 60.0 * 60.0 * 24.0
 RADIUS_OF_EARTH = 6378160.0
 M_TO_DEGREE = 360.0 / (2.0 * np.pi * RADIUS_OF_EARTH)
@@ -145,6 +145,9 @@ class Larva:
     
     def get_track(self):
         return self.xlon_history, self.xlat_history
+        
+    def get_depth_history(self):
+        return self.depth_history        
     
     def get_velocity(self):
         return self.vel
@@ -205,6 +208,13 @@ class Larva:
         i = round((self.pos[0] - minlon) / lonstep)
         # j coordinate nearest larva
         j = round((self.pos[1] - minlat) / latstep)
+        
+        outofarea = False
+        if i < 0 or i >= nx:
+            outofarea = True
+        if j < 0 or j >= ny:
+            outofarea = True
+            
         # k box with larva in
         zlevs = gridk[1]
         nz = len(zlevs)
@@ -215,7 +225,11 @@ class Larva:
                 k = layer
                 break
         
-        landed = not mask[i,j,k]        
+        if not outofarea:
+            landed = not mask[i,j,k]
+        else:
+            landed = True
+                
         
         self.xlon_history.append(self.pos[0])
         self.xlat_history.append(self.pos[1])
@@ -234,32 +248,54 @@ class Larva:
 
 np.random.seed(1)
 
-inputfilename = "clim.txt"
+inputfilename = "C:/Users/af26/Documents/MSModelData/clim.txt"
 gridlon, gridlat, gridk, minlon, maxlon, minlat, maxlat, lonstep, latstep = setupGrid(inputfilename) 
 nx, ny, nz, infile = readHeader(inputfilename)
 
 larvae_group = set([])
 larvae_onbed = set([])
 
-# Hebrides Terrace 
-lat = -10.0
-lon = 56.3
+# Rockall Bank 1
+lon = -15.0
+lat = 55.56
 for i in range(10):
     for j in range(10):
-        larvae_group.add(Larva([lat, lon, 80.0], [0.0,0.0,0.0],'hebrides'))
+        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
+                                lat - 0.125 + j * 0.025, 5.0], 
+                                [0.0,0.0,0.0],'rockall1'))
+
+# Rockall Bank 2
+lon = -14.23
+lat = 57.84
+for i in range(10):
+    for j in range(10):
+        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
+                                lat - 0.125 + j * 0.025, 5.0], 
+                                [0.0,0.0,0.0],'rockall2'))
+
+# Hebrides Terrace 
+lon = -10.3
+lat = 56.5
+for i in range(10):
+    for j in range(10):
+        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
+                                lat - 0.125 + j * 0.025, 5.0], 
+                                [0.0,0.0,0.0],'hebrides'))
 
 # East Mingulay
-lat = -7.405
-lon = 56.78889
+lon = -7.405
+lat = 56.78889
 for i in range(10):
     for j in range(10):
-        larvae_group.add(Larva([lat, lon, 80.0], [0.0,0.0,0.0],'mingulay'))
+        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
+                                lat - 0.125 + j * 0.025, 5.0], 
+                                [0.0,0.0,0.0],'mingulay'))
 
 
-nsteps = int(SECONDS_IN_DAY * 60.0 / DT)
+nsteps = int(SECONDS_IN_DAY * 90.0 / DT)
 
-m = Basemap(projection='lcc',llcrnrlat=55.,llcrnrlon=-12.,urcrnrlat=62.,\
-            urcrnrlon=2.,lat_1=50.,lon_0 = -5.0,resolution='h')
+m = Basemap(projection='lcc',llcrnrlat=54.,llcrnrlon=-16.,urcrnrlat=62.,\
+            urcrnrlon=2.,lat_1=50.,lon_0 = -7.0,resolution='h')
 
 u, v, w = readHydrographicData(infile,STARTDAY, nx, ny, nz, first = True)
 mask = landmask(u, v, w)
@@ -286,9 +322,13 @@ for larva in larvae_group:
     x1, y1, z1 = larva.get_position()
     source = larva.get_source()
     if source == 'hebrides':
-        col = 'crimson'
-    else:
-        col = 'green'
+        col = '#444444'
+    elif source == 'mingulay':
+        col = '#444444'
+    elif source == 'rockall1':
+        col = '#444444'
+    else: #source = 'rockall2'
+        col = '#444444'
     m.plot(x,y, latlon = True, color = col)
     m.scatter(x1,y1,latlon = True, color = col)
     
@@ -297,19 +337,32 @@ for larva in larvae_onbed:
     x1, y1, z1 = larva.get_position()
     source = larva.get_source()
     if source == 'hebrides':
-        col = 'indianred'
-    else:
-        col = 'lightgreen'
+        col = '#000000'
+    elif source == 'mingulay':
+        col = '#000000'
+    elif source == 'rockall1':
+        col = '#000000'
+    else: #source = 'rockall2'
+        col = '#000000'
     m.plot(x,y, latlon = True, color = col)
     m.scatter(x1,y1,latlon = True, color = col)
         
+m.etopo()
 m.drawcoastlines()
 
-m.fillcontinents(color='coral',lake_color='skyblue')
+#m.fillcontinents(color='coral',lake_color='skyblue')
 # draw parallels and meridians.
 m.drawparallels(np.arange(50.,66.,1.),labels = [1,1,0,0])
 m.drawmeridians(np.arange(-16.,17.,2.),labels = [0,0,0,1])
 m.drawmapboundary(fill_color='skyblue')
-plt.title("Larval dispersal")
+plt.title("Larval dispersal July release at 5 m")
 #plt.savefig('foo.pdf')
+plt.figure()
+
+tstep = np.array(range(nsteps+1))
+t = tstep / 24.0
+for larva in larvae_group:
+    z = larva.get_depth_history()
+        plt.plot(t,z)
+
 plt.show()
