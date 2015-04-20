@@ -6,7 +6,7 @@ Created on Mon Dec 08 15:55:58 2014
 """
 
 from math import sqrt, pi, sin, cos, tan, atan2 as arctan2
-import csv
+#import csv
 
 def OSGB36toWGS84(E,N):
 
@@ -95,19 +95,3 @@ def OSGB36toWGS84(E,N):
 
     #Job's a good'n. 
     return lat, lon
-
-#Read in from a file
-BNG = csv.reader(open('BNG.csv', 'rU'), delimiter = ',')
-BNG.next()
-
-#Get the output file ready
-outputFile = open('BNGandLatLon.csv', 'wb')
-output=csv.writer(outputFile,delimiter=',')
-output.writerow(['Lat', 'Lon', 'E', 'N'])
-
-#Loop through the data
-for E,N in BNG:
-    lat, lon = OSGB36toWGS84(float(E), float(N))
-    output.writerow([str(lat), str(lon), str(E), str(N)])
-#Close the output file
-outputFile.close()

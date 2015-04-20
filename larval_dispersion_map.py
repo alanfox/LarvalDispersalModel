@@ -24,12 +24,18 @@ be up to the job. Need to implement running with POLCOMM model fields.
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.path as mplPath
 from mpl_toolkits.basemap import Basemap
 from scipy.interpolate import interp1d
+import shapefile
+from bngtolatlon import OSGB36toWGS84
 
-inputfilename = "C:/Users/af26/Documents/MSModelData/clim.txt"
+inputfilename = "C:/Users/af26/MSModelData/clim.txt"
+MPA_SOURCE = 'Geikie Slide and Hebridean Slope'
 
-STARTDAY = 182        
+NUM_LARVAE = 100
+
+STARTDAY = 1        
 SECONDS_IN_DAY = 60.0 * 60.0 * 24.0
 RADIUS_OF_EARTH = 6378160.0
 M_TO_DEGREE = 360.0 / (2.0 * np.pi * RADIUS_OF_EARTH)
@@ -37,6 +43,11 @@ M_TO_DEGREE = 360.0 / (2.0 * np.pi * RADIUS_OF_EARTH)
 DT = 3600.0
 
 KM = np.array([1.0, 1.0, 0.0002]) #constant diffusion coefficient m2/s
+
+VERTICAL_INTERP = True
+ANIMATE = False
+SETTLING = True
+DEATH = False
 
 # constants for larval behaviour
 # larvae released at bed, head upwards with increasing swim speeds up to 
@@ -165,13 +176,146 @@ def landmask(u,v,w):
     # velocities being equal to zero.
     return np.logical_or(u != 0.0,v != 0.0,w != 0.0)
     
+def plot_animate():
+    
+    for larva in larvae_group:
+        x1, y1, z1 = larva.get_position()
+        source = larva.get_source()
+        if source == 'hebrides':
+            col = '#444444'
+        elif source == 'mingulay':
+            col = '#444444'
+        elif source == 'rockall1':
+            col = '#444444'
+        else: #source = 'rockall2'
+            col = '#444444'
+        m.scatter(x1,y1,latlon = True, color = col)
+
+    for larva in larvae_outofarea:
+        x1, y1, z1 = larva.get_position()
+        source = larva.get_source()
+        if source == 'hebrides':
+            col = '#000000'
+        elif source == 'mingulay':
+            col = '#000000'
+        elif source == 'rockall1':
+            col = '#000000'
+        else: #source = 'rockall2'
+            col = '#000000'
+        m.scatter(x1,y1,latlon = True, color = col)
+
+    m.etopo()
+    m.drawcoastlines()
+    
+    #m.fillcontinents(color='coral',lake_color='skyblue')
+    # draw parallels and meridians.
+    m.drawparallels(np.arange(50.,66.,1.),labels = [1,1,0,0])
+    m.drawmeridians(np.arange(-16.,17.,2.),labels = [0,0,0,1])
+    m.drawmapboundary(fill_color='skyblue')
+    plt.title("Larval dispersal. 'Realistic larval behaviour (Larsson et al.)")
+
+    plot_file_name = '_temp%05d.png' % (day-STARTDAY)
+    
+    plt.savefig(plot_file_name)
+    plt.clf()
+    
+def read_shapefile(filename):
+    sf = shapefile.Reader(filename)
+    shapes = sf.shapes()
+    records = sf.records()
+    return shapes, records
+    
+class Mpa:
+    
+    def __init__(self, shape, record, area_type):
+        
+        
+        self.shape = shape
+        self.record = record
+        self.area_type = area_type
+        self.bbox = shape.bbox
+        self.bbox_points = [[self.bbox[0],self.bbox[1]],
+                            [self.bbox[2],self.bbox[1]],
+                            [self.bbox[2],self.bbox[3]],
+                            [self.bbox[0],self.bbox[3]]]
+        self.points = shape.points
+# convert from bng to latlon
+        if self.area_type == 'MPA' or self.area_type == 'MAR_SAC' or self.area_type == 'SPA':
+            self.bbox = self.bng2lonlat_bbox(self.bbox)
+            self.bbox_points = self.bng2lonlat(self.bbox_points)
+            self.points = self.bng2lonlat(self.points)
+            
+        self.bbox_path = mplPath.Path(self.bbox_points)
+        self.shape_path = mplPath.Path(self.points)
+        self.nsettled = 0
+        
+    def get_bbox(self):
+        return self.bbox
+        
+    def get_points(self):
+        return self.points
+        
+    def get_sitename(self):
+        if self.area_type == 'OFF_SAC':
+            return self.record[1]
+        if self.area_type == 'MPA':
+            return self.record[0]
+        if self.area_type == 'MAR_SAC':
+            return self.record[0]
+        if self.area_type == 'SPA':
+            return self.record[0]
+        
+    def get_settled(self):
+        return self.nsettled
+        
+    def settles(self,larva):
+        # tests if an object of class Larva settles in the mpa
+        if larva.ready_to_settle():
+            pos = larva.get_position()
+            x = pos[0]
+            y = pos[1]
+            if self.bbox_path.contains_point((x,y)):
+                if self.shape_path.contains_point((x,y)):
+                    self.nsettled = self.nsettled + 1
+                    return True
+        return False
+        
+    def bng2lonlat(self,bng):
+        lonlat = []
+        for i in range(len(bng)):
+            x = OSGB36toWGS84(bng[i][0],bng[i][1])
+            y = [x[1],x[0]]
+            lonlat.append(y)
+        return lonlat
+        
+    def bng2lonlat_bbox(self,bng):
+        ll = OSGB36toWGS84(bng[0],bng[1])
+        ur = OSGB36toWGS84(bng[2],bng[3])
+        bbox = [ll[1],ll[0],ur[1],ur[0]]
+        return bbox
+        
+    def plot_shape(self):
+        x = []
+        y = []
+#        print self.shape_path.contains_point((-14.0,58.0)), self.record[1]
+        for point in self.points:
+            x.append(point[0])
+            y.append(point[1])
+        m.plot(x,y, latlon = True, color = 'red')   
+        
 class Larva:
     
     # each larva will be an instance of this class
 
     def __init__(self, pos, vel, source):
         self.rundays = 0.0
+        self.at_bed = False
         self.pos = np.array([pos[0], pos[1], pos[2]])
+        #if pos[2] is negative, bed release
+        
+        if self.pos[2] < 0.0:
+            self.bed_release(self.pos)
+            
         self.newpos = np.array([pos[0], pos[1], pos[2]])
         self.vel = np.array([vel[0], vel[1], vel[2]])
         self.xlon_history = []
@@ -188,6 +332,7 @@ class Larva:
         self.fv2 = []
         self.fw2 = []
         
+        
         #larval behaviour constants - vary slightly for each larva
         self.swimslow = SWIMSLOW
         self.swimfast = SWIMFAST 
@@ -199,6 +344,28 @@ class Larva:
 # uncomment to activate settling and dying
 #        self.minsettleage = MINSETTLEAGE
 #        self.deadage = DEADAGE
+        
+        
+    def bed_release(self, position):
+        
+        # i coordinate nearest larva
+        i = round((position[0] - minlon) / lonstep)
+        # j coordinate nearest larva
+        j = round((position[1] - minlat) / latstep)
+          
+        # determines k box with larva in
+        zlevs = gridk[1]
+        nz = len(zlevs)
+        
+        k = nz
+
+        for layer in range(nz):
+            if not mask[i,j,layer]:
+                k = layer
+                break
+        
+        self.pos[2] = zlevs[k - 1] - 5.0
+        self.at_bed = True
         
         
     def get_position(self):
@@ -234,9 +401,9 @@ class Larva:
             w2 = np.insert(np.append(w1,w1[nz-1]),0,w1[0])
         
             # cubic spline interpolation 
-            self.fu2 = interp1d(zlevs, u2, kind='cubic')
-            self.fv2 = interp1d(zlevs, v2, kind='cubic')
-            self.fw2 = interp1d(zlevs, w2, kind='cubic')
+            self.fu2 = interp1d(zlevs, u2, kind = 'linear')
+            self.fv2 = interp1d(zlevs, v2, kind = 'linear')
+            self.fw2 = interp1d(zlevs, w2, kind = 'linear')
 
     def advection(self):
         
@@ -250,13 +417,34 @@ class Larva:
         # j coordinate nearest larva
         j = round((self.pos[1] - minlat) / latstep)
         
-        # interpolate velocities in the vertical
-        self.vertical_interpolation(i,j)
-              
-        self.vel[0] = self.fu2(self.pos[2])
-        self.vel[1] = self.fv2(self.pos[2])
-        self.vel[2] = self.fw2(self.pos[2])
+        if VERTICAL_INTERP:
+            # interpolate velocities in the vertical
+            self.vertical_interpolation(i,j)
+                  
+            self.vel[0] = self.fu2(self.pos[2])
+            self.vel[1] = self.fv2(self.pos[2])
+            self.vel[2] = self.fw2(self.pos[2])
+            
+        else:    
+            # or just go with box larva is in
+            # k box with larva in
+            zlevs = gridk[1]
+            nz = len(zlevs)
+            z = self.pos[2]
+    
+            for layer in range(nz):
+                if z <= zlevs[layer]:
+                    k = layer
+                    break
+            
+            # interpolate velocities
+            # don't bother for now, just use the gridbox the point is in
+            
+            self.vel[0] = u[i,j,k]
+            self.vel[1] = v[i,j,k]
+            self.vel[2] = w[i,j,k]            
         
+
     def diffusion(self):
         # 2-d horizontal diffusion with constant k. Gaussian randon walk.
         # vertical diffusion, Gaussian random walk, different constant.
@@ -335,24 +523,33 @@ class Larva:
         zlevs = gridk[1]
         nz = len(zlevs)
         z = position[2]
+        
+        k = nz
 
         for layer in range(nz):
             if z <= zlevs[layer]:
                 k = layer
                 break
+        if k == nz:
+            return True
+        else:
+            return not mask[i,j,k]
         
-        return not mask[i,j,k]
+        
+    def ready_to_settle(self):
+        return ((self.rundays > MINSETTLEAGE) and self.at_bed)
                         
                 
     def update(self, rundays):
         
         self.rundays = rundays
+        self.at_bed = False
         
         # updates the larva position, returns a boolean value - True if 
         # the larva has hit the bed or left the area, otherwise False
         
         # update position
-        m_to_degree_lon = M_TO_DEGREE / np.cos(np.radians(self.pos[0]))
+        m_to_degree_lon = M_TO_DEGREE / np.cos(np.radians(self.pos[1]))
         m_to_degree = np.array([m_to_degree_lon, M_TO_DEGREE, 1.0])
               
 #        print self.pos
@@ -377,6 +574,7 @@ class Larva:
             
         if self.isonland(self.newpos):
             self.newpos = self.pos
+            self.at_bed = True
 #            print 'on land', self.newpos
         
         # lock in advection update
@@ -394,6 +592,7 @@ class Larva:
 
         if self.isonland(self.newpos):
             self.newpos = self.pos
+            self.at_bed = True
 #            print 'on land', self.newpos 
         
         # test if swims out of surface
@@ -426,6 +625,7 @@ class Larva:
             
         if self.isonland(self.newpos):
             self.newpos = self.pos
+            self.at_bed = True
 #            print 'on land', self.newpos 
             
         # test if diffused out of surface
@@ -445,70 +645,96 @@ class Larva:
         self.depth_history.append(self.pos[2])
         
         return False
-        
 
+# helper functions
+        
+def group_settle(mpa_sprite_group, larva_object):
+    settled = False
+    for mpa in set(mpa_sprite_group):
+        if mpa.settles(larva_object):
+            settled = True
+    return settled
+
+def group_group_settle(larval_sprite_group, mpa_sprite_group):
+    for larva in set(larval_sprite_group):
+        if group_settle(mpa_sprite_group, larva):
+            larval_sprite_group.remove(larva)
+            settled_group.add(larva)            
 
 np.random.seed(1)
 
+# set up group of mpas
 
+mpa_group = set([])
 
+# offshore SAC
+shapes, records = read_shapefile('C:/Users/af26/Shapefiles/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/SCOTLAND_SAC_OFFSHORE_20121029_SIMPLE3')
+for i in range(len(shapes)):
+    mpa_group.add(Mpa(shapes[i], records[i],'OFF_SAC'))
+    
+# SAC with marine components
+shapes, records = read_shapefile('C:/Users/af26/Shapefiles/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/SCOTLAND_SACs_withMarineComponents_20130821_SIMPLE3')
+for i in range(len(shapes)):
+    mpa_group.add(Mpa(shapes[i], records[i],'MAR_SAC'))
+    
+# Nature conservation MPA
+shapes, records = read_shapefile('C:/Users/af26/Shapefiles/MPA_SCOTLAND_ESRI/MPA_SCOTLAND_SIMPLE3')
+for i in range(len(shapes)):
+    mpa_group.add(Mpa(shapes[i], records[i],'MPA'))
+    
+## SPAs
+#shapes, records = read_shapefile('C:/Users/af26/Shapefiles/SPA_SCOTLAND_ESRI/SPA_SCOTLAND')
+#for i in range(len(shapes)):
+#    mpa_group.add(Mpa(shapes[i], records[i],'SPA'))
+#    
 # read in and calculate the model grid variables
 
 gridlon, gridlat, gridk, minlon, maxlon, minlat, maxlat, lonstep, latstep = setupGrid(inputfilename) 
 nx, ny, nz, infile = readHeader(inputfilename)
-
-# initialise larvae. 
-# Using grids of larvae at the same depth around a central point.
-
-larvae_group = set([])
-larvae_outofarea = set([])
-
-# Rockall Bank 1
-lon = -15.0
-lat = 55.56
-for i in range(10):
-    for j in range(10):
-        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
-                                lat - 0.125 + j * 0.025, 2000.0], 
-                                [0.0,0.0,0.0],'rockall1'))
-                                
-# Rockall Bank 2
-lon = -14.23
-lat = 57.84
-for i in range(10):
-    for j in range(10):
-        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
-                                lat - 0.125 + j * 0.025, 300.0], 
-                                [0.0,0.0,0.0],'rockall2'))
-
-#Hebrides Terrace 
-lon = -10.3
-lat = 56.5
-for i in range(10):
-    for j in range(10):
-        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
-                                lat - 0.125 + j * 0.025, 2000.0], 
-                                [0.0,0.0,0.0],'hebrides'))
-
-# East Mingulay
-lon = -7.405
-lat = 56.78889
-for i in range(10):
-    for j in range(10):
-        larvae_group.add(Larva([lon - 0.25 + i * 0.05, 
-                                lat - 0.125 + j * 0.025, 75.0], 
-                                [0.0,0.0,0.0],'mingulay'))
-#
 
 # read in the opening day's data
 
 u, v, w = readHydrographicData(infile,STARTDAY, nx, ny, nz, first = True)
 mask = landmask(u, v, w)
 
-# the main program loop
+# initialise larvae. 
+# Using grids of larvae at the same depth around a central point.
 
+larvae_group = set([])
+larvae_outofarea = set([])
+settled_group = set([])
+
+# seed larvae randomly in a particular mpa
+
+for mpa in mpa_group:
+    
+    if mpa.get_sitename() == MPA_SOURCE:
+        nlarvae = 0
+        bbox = mpa.get_bbox()
+        points = mpa.get_points()
+        path = mplPath.Path(points)
+        while nlarvae < NUM_LARVAE:
+            x = -200.0
+            y = -200.0
+            while not path.contains_point((x,y)):
+                x = np.random.uniform(bbox[0],bbox[2])
+                y = np.random.uniform(bbox[1],bbox[3])
+        # check not on land
+            i = round((x - minlon) / lonstep)
+            j = round((y - minlat) / latstep)
+            if mask[i,j,0]:
+                larvae_group.add(Larva([x, y, -1.0], [0.0,0.0,0.0],MPA_SOURCE))
+                nlarvae = nlarvae + 1
+
+# the main program loop
+# initialise map
+
+m = Basemap(projection='lcc',llcrnrlat=54.,llcrnrlon=-16.,urcrnrlat=62.,\
+            urcrnrlon=2.,lat_1=50.,lon_0 = -7.0,resolution='h')
+            
+            
 day = STARTDAY
-nsteps = int(SECONDS_IN_DAY * 56.0 / DT)
+nsteps = int(SECONDS_IN_DAY * 63.0 / DT)
 endday = False
 runtime = 0.0
 for t in range(nsteps):
@@ -526,16 +752,19 @@ for t in range(nsteps):
     # read in a new current data field at the start of each day (daily mean fields)
     if ((runtime % SECONDS_IN_DAY) < DT/2.0):
         day = day + 1
-        print day
+#        print day
         u, v, w = readHydrographicData(infile,day, nx, ny, nz, first = False)
+
+        if ANIMATE:
+            plot_animate()
+            
+    if (SETTLING and (rundays > MINSETTLEAGE)):
+        group_group_settle(larvae_group, mpa_group)
             
 infile.close()
 
 # plot the results
-# initialise map
 
-m = Basemap(projection='lcc',llcrnrlat=54.,llcrnrlon=-16.,urcrnrlat=62.,\
-            urcrnrlon=2.,lat_1=50.,lon_0 = -7.0,resolution='c')
             
 # Draw the larvae tracks on the map. End each track with a dot.
 # Ugly if loop code allows different colour tracks for different sources.
@@ -543,33 +772,24 @@ m = Basemap(projection='lcc',llcrnrlat=54.,llcrnrlon=-16.,urcrnrlat=62.,\
 for larva in larvae_group:
     x, y = larva.get_track()
     x1, y1, z1 = larva.get_position()
-    source = larva.get_source()
-    if source == 'hebrides':
-        col = '#444444'
-    elif source == 'mingulay':
-        col = '#444444'
-    elif source == 'rockall1':
-        col = '#444444'
-    else: #source = 'rockall2'
-        col = '#444444'
+    col = '#444444'
     m.plot(x,y, latlon = True, color = col)
     m.scatter(x1,y1,latlon = True, color = col)
     
 for larva in larvae_outofarea:
     x, y = larva.get_track()
     x1, y1, z1 = larva.get_position()
-    source = larva.get_source()
-    if source == 'hebrides':
-        col = '#000000'
-    elif source == 'mingulay':
-        col = '#000000'
-    elif source == 'rockall1':
-        col = '#000000'
-    else: #source = 'rockall2'
-        col = '#000000'
+    col = '#000000'
     m.plot(x,y, latlon = True, color = col)
     m.scatter(x1,y1,latlon = True, color = col)
         
+for larva in settled_group:
+    x, y = larva.get_track()
+    x1, y1, z1 = larva.get_position()
+    col = '#880000'
+    m.plot(x,y, latlon = True, color = col)
+    m.scatter(x1,y1,latlon = True, color = col)
+    
 # etopo is the topography/ bathymetry map background
 m.etopo()
 m.drawcoastlines()
@@ -581,7 +801,13 @@ m.drawcoastlines()
 m.drawparallels(np.arange(50.,66.,1.),labels = [1,1,0,0])
 m.drawmeridians(np.arange(-16.,17.,2.),labels = [0,0,0,1])
 m.drawmapboundary(fill_color='skyblue')
-plt.title("Larval dispersal July release at 5 m")
+plt.title("Larval dispersal 1 Jan release from bed. Larsson et al behaviour")
+# draw the mpas
+
+for mpa in mpa_group:
+    mpa.plot_shape()
+    print mpa.get_settled(), mpa.get_sitename()
+
 #plt.savefig('foo.pdf')
 
 
@@ -589,10 +815,21 @@ plt.title("Larval dispersal July release at 5 m")
 # this draws a t,z plot of the position of the larvae in the water column
 
 plt.figure()
-tstep = np.array(range(nsteps+1))
-t = tstep / 24.0
+plt.title("Larval dispersal 1 Jan release from bed. Larsson et al behaviour")
 for larva in larvae_group:
     z = larva.get_depth_history()
-    plt.plot(t,z)
-
+    tstep = np.array(range(len(z)))
+    t = tstep / 24.0
+    plt.plot(t,z, color = '#444444')
+for larva in larvae_outofarea:
+    z = larva.get_depth_history()
+    tstep = np.array(range(len(z)))
+    t = tstep / 24.0
+    plt.plot(t,z, color = '#000000')
+for larva in settled_group:
+    z = larva.get_depth_history()
+    tstep = np.array(range(len(z)))
+    t = tstep / 24.0
+    plt.plot(t,z, color = '#880000')
+    
 plt.show()
