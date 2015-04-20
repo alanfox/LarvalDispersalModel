@@ -134,6 +134,37 @@ def plot_shapefiles(filename):
             y.append(point[1])
         m.plot(x,y, latlon = True, color = 'red')    
     
+def read_shapefile(filename):
+    sf = shapefile.Reader(filename)
+    shapes = sf.shapes()
+    records = sf.records()
+    return shapes, records
+    
+class Mpa:
+    
+    def __init__(self, shape, record):
+        
+        self.shape = shape
+        self.record = record
+        self.bbox = shape.bbox
+        self.points = shape.points
+        
+    def get_bbox(self):
+        return self.bbox
+        
+    def get_points(self):
+        return self.points
+        
+    def plot_shape(self):
+        x = []
+        y = []
+        shape_path = mplPath.Path(self.points)
+        print shape_path.contains_point((-14.0,58.0)), self.record[1]
+        for point in self.points:
+            x.append(point[0])
+            y.append(point[1])
+        m.plot(x,y, latlon = True, color = 'red')    
+
 class Larva:
 
     def __init__(self, pos, vel, source):
@@ -261,9 +292,18 @@ class Larva:
         rnorm = np.random.normal(0.0,1.0,3)
         self.turb = rnorm * np.sqrt(2.0 * KM * DT)
 
+
+# set up group of mpas
+
+mpa_group = set([])
+
+shapes, records = read_shapefile('C:/Users/af26/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/UK_SAC_OFFSHORE_20121029')
+for i in range(len(shapes)):
+    mpa_group.add(Mpa(shapes[i], records[i]))
+
 np.random.seed(1)
 
-inputfilename = "C:/Users/af26/Documents/MSModelData/clim.txt"
+inputfilename = "C:/Users/af26/MSModelData/clim.txt"
 gridlon, gridlat, gridk, minlon, maxlon, minlat, maxlat, lonstep, latstep = setupGrid(inputfilename) 
 nx, ny, nz, infile = readHeader(inputfilename)
 
@@ -371,8 +411,15 @@ m.drawparallels(np.arange(50.,66.,1.),labels = [1,1,0,0])
 m.drawmeridians(np.arange(-16.,17.,2.),labels = [0,0,0,1])
 m.drawmapboundary(fill_color='skyblue')
 plt.title("Larval dispersal July release at 5 m")
-plot_shapefiles('C:/Users/af26/Downloads/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/UK_SACs_withMarineComponents_20130821')
-plot_shapefiles('C:/Users/af26/Downloads/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/UK_SAC_OFFSHORE_20121029')
+
+
+# draw the mpas
+
+for mpa in mpa_group:
+    mpa.plot_shape()
+
+#plot_shapefiles('C:/Users/af26/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/UK_SACs_withMarineComponents_20130821')
+#plot_shapefiles('C:/Users/af26/UK_SAC_MAR_GIS_20130821b/UK_SAC_MAR_GIS_20130821b/UK_SAC_OFFSHORE_20121029')
 #plt.savefig('foo.pdf')
 #plt.figure()
 #
